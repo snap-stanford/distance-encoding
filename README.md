@@ -124,7 +124,7 @@ Interface for DE-GNN framework [-h] [--dataset DATASET] [--parallel] [--test_rat
 ```
 
 ## Note
-Currently the pipeline does not extract subgraph for node but performs matrix operation on the full adjacency matrix. The version with graph extration will be updated in the future.
+Currently the pipeline does not extract subgraph for node but relies on matrix operation on the full adjacency matrix. Version done with graph extraction will be updated in the future.
 
 ## Reference
 If you make use of the code/experiment of DEGNN in your work, please cite our paper (Bibtex below):
