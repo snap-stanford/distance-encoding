@@ -16,35 +16,34 @@ conda env create -f environment.yml
 conda activate degnn-env
 ```
 
-- Alternatively for last step, one can use the provided `requirements.txt` and [pip](https://pypi.org/project/pip/) for installation, i.e.:
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-- Install PyTorch >= 1.4.0 (please refer to the [official website](https://pytorch.org/) for more details), for example:
+- Install PyTorch >= 1.4.0 and torch-geometric >= 1.5.0 (please refer to the [PyTorch](https://pytorch.org/) and [PyTorch Geometric](https://pytorch-geometric.readthedocs.io/) official websites for more details). Commands examples are:
 ```bash
 conda install pytorch=1.4.0 torchvision cudatoolkit=10.1 -c pytorch
+pip install torch-scatter==latest+cu101 -f https://pytorch-geometric.com/whl/torch-1.4.0.html
+pip install torch-sparse==latest+cu101 -f https://pytorch-geometric.com/whl/torch-1.4.0.html
+pip install torch-cluster==latest+cu101 -f https://pytorch-geometric.com/whl/torch-1.4.0.html
+pip install torch-spline-conv==latest+cu101 -f https://pytorch-geometric.com/whl/torch-1.4.0.html
+pip install torch-geometric
 ```
 
-The latest tested combination is: Python 3.8.2 + Pytorch 1.4.0.
+The latest tested combination is: Python 3.8.2 + Pytorch 1.4.0 + torch-geometric 1.5.0.
 
 ## Quick Start
 - To train **DEGNN-SPD** Task 2 (link prediction) on [C.elegans dataset](https://snap.stanford.edu/data/C-elegans-frontal.html): 
 ```bash
-python main.py --dataset celegans --feature sp --hidden_features 100 --prop_depth 1 --test_ratio 0.2 --epoch 300 --parallel
+python main.py --dataset celegans --feature sp --hidden_features 100 --prop_depth 1 --test_ratio 0.1 --epoch 300
 ```
-&nbsp;&nbsp;&nbsp; This uses 100-dimensional hidden features, 80/10/10 split of train/val/test set, trains for 300 epochs, and perform distance encoding parallelly using multiple cpu cores. 
+&nbsp;&nbsp;&nbsp; This uses 100-dimensional hidden features, 80/10/10 split of train/val/test set, trains for 300 epochs, and perform distance encoding using multiple cpu cores. 
 
 - To train **DEAGNN-SPD** for Task 3 (node-triads prediction) on C.elegans dataset:
 ```bash
-python main.py --dataset celegans_tri --hidden_features 100 --prop_depth 3 --epoch 300 --feature sp --max_sp 5 --lr 1e-4 --test_ratio 0.2 --seed 9
+python main.py --dataset celegans_tri --hidden_features 100 --prop_depth 2 --epoch 300 --feature sp --max_sp 5 --test_ratio 0.1 --seed 9
 ```
-&nbsp;&nbsp;&nbsp; This enables 3-hop propagation per layer, truncates distance encoding at 5, and uses random seed 9.
+&nbsp;&nbsp;&nbsp; This enables 2-hop propagation per layer, truncates distance encoding at 5, and uses random seed 9.
 
 - To train **DEGNN-LP** (i.e. the random walk variant) for Task 1 (node-level prediction) on usa-airports using average accuracy as evaluation metric:
 ```bash
-python main.py --dataset usa-airports --metric acc --hidden_features 100 --feature rw --rw_depth 2 --epoch 500 --bs 128 --test_ratio 0.2
+python main.py --dataset usa-airports --metric acc --hidden_features 100 --feature rw --rw_depth 2 --epoch 500 --bs 128 --test_ratio 0.1
 ```
 
 Note that here the `test_ratio` consists of validation set and the actual test set. 
@@ -60,14 +59,14 @@ python main.py --dataset simulation --max_sp 10
 
 ## Usage Summary
 ```
-Interface for DE-GNN framework [-h] [--dataset DATASET] [--parallel] [--test_ratio TEST_RATIO]
-                                      [--model {DE-GCN,GIN,PGNN,GCN,GraphSAGE}] [--layers LAYERS]
+Interface for DE-GNN framework [-h] [--dataset DATASET] [--test_ratio TEST_RATIO]
+                                      [--model {DE-GNN,GIN,GCN,GraphSAGE,GAT}] [--layers LAYERS]
                                       [--hidden_features HIDDEN_FEATURES] [--metric {acc,auc}] [--seed SEED] [--gpu GPU]
-                                      [--adj_norm {asym,sym,None}] [--data_usage DATA_USAGE] [--directed DIRECTED]
-                                      [--prop_depth PROP_DEPTH] [--use_degree USE_DEGREE] [--feature FEATURE]
+                                      [--data_usage DATA_USAGE] [--directed DIRECTED] [--parallel] [--prop_depth PROP_DEPTH]
+                                      [--use_degree USE_DEGREE] [--use_attributes USE_ATTRIBUTES] [--feature FEATURE]
                                       [--rw_depth RW_DEPTH] [--max_sp MAX_SP] [--epoch EPOCH] [--bs BS] [--lr LR]
                                       [--optimizer OPTIMIZER] [--l2 L2] [--dropout DROPOUT] [--k K] [--n [N [N ...]]]
-                                      [--N N] [--T T] [--log_dir LOG_DIR] [--summary_file SUMMARY_FILE]
+                                      [--N N] [--T T] [--log_dir LOG_DIR] [--summary_file SUMMARY_FILE] [--debug]
 ```
 
 ## Optinal Arguments
@@ -76,10 +75,9 @@ Interface for DE-GNN framework [-h] [--dataset DATASET] [--parallel] [--test_rat
   
   # general settings
   --dataset DATASET     dataset name
-  --parallel            whether to use multi cpu cores to prepare data
   --test_ratio TEST_RATIO
                         ratio of the test against whole
-  --model {DE-GCN,GIN,PGNN,GCN,GraphSAGE}
+  --model {DE-GCN,GIN,GAT,GCN,GraphSAGE}
                         model to use
   --layers LAYERS       largest number of layers
   --hidden_features HIDDEN_FEATURES
@@ -91,13 +89,16 @@ Interface for DE-GNN framework [-h] [--dataset DATASET] [--parallel] [--test_rat
                         how to normalize adj
   --data_usage DATA_USAGE
                         use partial dataset
-  --directed DIRECTED   whether to treat the graph as directed
+  --directed DIRECTED   (Currently unavailable) whether to treat the graph as directed
+  --parallel            (Currently unavailable) whether to use multi cpu cores to prepare data
   
   # positional encoding settings
   --prop_depth PROP_DEPTH
                         propagation depth (number of hops) for one layer
   --use_degree USE_DEGREE
                         whether to use node degree as the initial feature
+  --use_attributes USE_ATTRIBUTES
+                        whether to use node attributes as the initial feature
   --feature FEATURE     distance encoding category: shortest path or random walk (landing probabilities)
   --rw_depth RW_DEPTH   random walk steps
   --max_sp MAX_SP       maximum distance to be encoded for shortest path feature
@@ -121,10 +122,9 @@ Interface for DE-GNN framework [-h] [--dataset DATASET] [--parallel] [--test_rat
   --log_dir LOG_DIR     log directory
   --summary_file SUMMARY_FILE
                         brief summary of training result
+  --debug               whether to use debug mode
 ```
 
-## Note
-Currently the pipeline does not extract subgraph for node but relies on matrix operation on the full adjacency matrix. Version done with graph extraction will be updated in the future.
 
 ## Reference
 If you make use of the code/experiment of DEGNN in your work, please cite our paper (Bibtex below):

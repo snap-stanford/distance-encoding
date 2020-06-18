@@ -1,31 +1,37 @@
 import matplotlib.pyplot as plt
 import logging
+from math import ceil
+from utils import *
+from train import eval_model
 logging.getLogger('matplotlib.font_manager').disabled = True
 logging.getLogger('matplotlib.ticker').disabled = True
-from math import ceil
-import torch
-import networkx as nx
-from utils import *
 
 
-def simulate(args, logger, device):
+def simulate(args, logger):
+    device = get_device(args)
     results = {}
     for n in args.n:
         logger.info('n = {}'.format(n))
         G = generate_many_k_regular_graphs(k=args.k, n=n, N=args.N, seed=args.seed)
-        data = get_data(G, task='simulation', labels=None, device=device, args=args, logger=logger)  #TODO
-        features, labels, adj_matrix, train_mask, test_mask, set_indices = data
         for T in range(1, args.T+1):
-            model = GNNModel(layers=T, in_features=features.shape[-1], hidden_features=args.hidden_features,
-                             out_features=32, prop_depth=args.prop_depth, dropout=args.dropout, set_indices=set_indices,
+            args.layers = T
+            loader = get_data(G, task='simulation', args=args, labels=None, logger=logger)
+            model = GNNModel(layers=T, in_features=loader.dataset[0].x.shape[-1], hidden_features=args.hidden_features,
+                             out_features=32, prop_depth=args.prop_depth, dropout=args.dropout,
                              model_name=args.model)
             model.to(device)
-            output = run_simulation(model, data, args=args)  # output shape [G.number_of_nodes(), feat_dim]
+            output = run_simulation(model, loader, device)  # output shape [G.number_of_nodes(), feat_dim]
+            if args.debug:
+                print('output', output)
             collision_rate = compute_simulation_collisions(output, ratio=True)
             results[(n, T)] = collision_rate
             torch.cuda.empty_cache()
             logger.info('T = {}: {}'.format(T, collision_rate))
+            if args.debug:
+                print_dataset(loader.dataset, logger)
         logger.info('#'*30)
+        if args.debug:
+            break
     return results
 
 
@@ -39,6 +45,7 @@ def generate_many_k_regular_graphs(k, n, N, seed=0):
         index_base += n
     G = nx.Graph()
     G.add_edges_from(edge_list)
+    G.graph['attributes'] = np.expand_dims(np.log(get_degrees(G)+1), 1).astype(np.float32)
     return G
 
 
@@ -47,26 +54,14 @@ def generate_k_regular(k, n, seed=0):
     return G
 
 
-def run_simulation(model, data, args):
-    features, _, adj_matrix, _, _, _ = data
-    device = features.device
-    n_samples = features.shape[1]
-    bs = args.bs
+def run_simulation(model, loader, device):
     model.eval()
-    predictions = []
     with torch.no_grad():
-        count = 0
-        while count < n_samples:
-            minibatch = torch.tensor(list(range(count, min(count + bs, n_samples)))).long().to(device)
-            count = count + bs
-            adj_batch = adj_matrix[minibatch].to(device) if args.model != 'PGNN' else adj_matrix
-            prediction = model(features[:, minibatch, :], adj_batch, minibatch)  # shape: [n_nodes, feat_dim]
-            predictions.append(prediction)
-        predictions = torch.cat(predictions, dim=0)
+        predictions = eval_model(model, loader, device, return_predictions=True)
     return predictions
 
 
-def save_simulation_result(results, pic_format='png'):
+def save_simulation_result(results, logger, pic_format='png'):
     n_l, T_l, r_l = [], [], []
     for (n, T), r in results.items():
         n_l.append(n)
@@ -77,6 +72,7 @@ def save_simulation_result(results, pic_format='png'):
     plt.xlabel('number of nodes (n)')
     plt.ylabel('number of network layers (T)')
     plt.savefig('./simulation_results.{}'.format(pic_format), dpi=300)
+    logger.info('Finished. Results drawn to ./simulation_results.{}'.format(pic_format))
 
 
 def compute_simulation_collisions(outputs, ratio=True):

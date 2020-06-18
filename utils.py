@@ -9,6 +9,19 @@ from tqdm import tqdm
 import time
 import sys
 from copy import deepcopy
+from torch_geometric.data import DataLoader, Data
+import torch_geometric.utils as tgu
+from debug import *
+
+
+def check(args):
+    if args.dataset == 'foodweb' and not args.directed:
+        raise Warning('dataset foodweb is essentially a directed network but currently treated as undirected')
+    if args.dataset == 'simulation':
+        if args.n is None:
+            args.n = [10, 20, 40, 80, 160, 320, 640, 1280]
+        if args.max_sp < args.T:
+            raise Warning('maximum shortest path distance (max_sp) is less than max number of layers (T), which may deteriorate model capability')
 
 
 def get_device(args):
@@ -26,9 +39,20 @@ def get_optimizer(model, args):
         raise NotImplementedError
 
 
-def print_storage(tensors, names, logger):
-    for tensor, name in zip(tensors, names):
-        logger.info('{} takes {} MB'.format(name, sys.getsizeof(tensor.storage())/1e6))
+def estimate_storage(dataloaders, names, logger):
+    total_gb = 0
+    for dataloader, name in zip(dataloaders, names):
+        dataset = dataloader.dataset
+        storage = 0
+        total_length = len(dataset)
+        sample_size = 100
+        for i in np.random.choice(total_length, sample_size):
+            storage += (sys.getsizeof(dataset[i].x.storage()) + sys.getsizeof(dataset[i].edge_index.storage()) +
+                        sys.getsizeof(dataset[i].y.storage())) + sys.getsizeof(dataset[i].set_indices.storage())
+        gb = storage*total_length/sample_size/1e9
+        total_gb += gb
+    logger.info('Data roughly takes {:.4f} GB in total'.format(total_gb))
+    return total_gb
 
 
 def set_random_seed(args):
@@ -77,7 +101,7 @@ def read_edges(dir, node_id_mapping):
 def read_file(args, logger):
     dataset = args.dataset
     di_flag = args.directed
-    if dataset in ['brazil-airports', 'europe-airports', 'usa-airports', 'foodweb']:
+    if dataset in ['brazil-airports', 'europe-airports', 'usa-airports', 'foodweb', 'karate']:
         task = 'node_classification'
     elif dataset in ['arxiv', 'celegans', 'celegans_small', 'facebook', 'ns', 'pb', 'power', 'router', 'usair', 'yeast']:
         task = 'link_prediction'
@@ -89,76 +113,77 @@ def read_file(args, logger):
         raise ValueError('dataset not found')
 
     directory = './data/' + task + '/' + dataset + '/'
-    if task == 'simulation':
-        labels = None
-
+    labels, node_id_mapping = read_label(directory, task=task)
+    edges = read_edges(directory, node_id_mapping)
+    if not di_flag:
+        G = nx.Graph(edges)
     else:
-        labels, node_id_mapping = read_label(directory, task=task)
-        edges = read_edges(directory, node_id_mapping)
-
-        if not di_flag:
-            G = nx.Graph(edges)
-        else:
-            G = nx.DiGraph(edges)
-        logger.info('Read in {} for {} --  number of nodes: {}, number of edges: {}, number of labels: {}. Directed: {}'.format(dataset, task,
-                                                                                                                    G.number_of_nodes(),
-                                                                                                                    G.number_of_edges(),
-                                                                                                                    len(labels) if labels is not None else 0,
-                                                                                                                   di_flag))
+        G = nx.DiGraph(edges)
+    attributes = np.zeros((G.number_of_nodes(), 1), dtype=np.float32)
+    if args.use_degree:
+        attributes += np.expand_dims(np.log(get_degrees(G)+1), 1).astype(np.float32)
+    if args.use_attributes:
+        # TODO: read in attribute file to concat to axis -1 of attributes, raise error if not found
+        raise NotImplementedError
+    G.graph['attributes'] = attributes
+    logger.info('Read in {} for {} --  number of nodes: {}, number of edges: {}, number of labels: {}. Directed: {}'.format(dataset, task,
+                                                                                                                G.number_of_nodes(),
+                                                                                                                G.number_of_edges(),
+                                                                                                                len(labels) if labels is not None else 0,
+                                                                                                               di_flag))
     labels = np.array(labels) if labels is not None else None
     return (G, labels), task
 
 
-def get_data(G, task, device, args, labels, logger):
+def get_data(G, task, args, labels, logger):
     G = deepcopy(G)  # to make sure original G is unchanged
-    di_flag = isinstance(G, nx.classes.digraph.DiGraph)
-    deg_flag = args.use_degree
+    if args.debug:
+        logger.info(list(G.edges))
+    # di_flag = isinstance(G, nx.classes.digraph.DiGraph)
+    # deg_flag = args.use_degree
     sp_flag = 'sp' in args.feature
     rw_flag = 'rw' in args.feature
-    norm_flag = args.adj_norm
-    feature_flags = (di_flag, deg_flag, sp_flag, rw_flag, norm_flag)
+    # norm_flag = args.adj_norm
+    feature_flags = (sp_flag, rw_flag)
+    # TODO: adapt the whole branch for simulation
     if task == 'simulation':
         set_indices = np.expand_dims(np.arange(G.number_of_nodes()), 1)
-        adj_matrix, features = get_adj_features(G, set_indices=set_indices, prop_depth=args.prop_depth,
-                                                feature_flags=feature_flags, task=task,
-                                                max_sprw=(args.max_sp, args.rw_depth),
-                                                parallel=args.parallel, return_adj=args.model != 'PGNN')
-        features = torch.from_numpy(features).float().to(device)
-        set_indices = torch.from_numpy(set_indices).long().to(device)
-        adj_matrix = torch.from_numpy(adj_matrix).float()
-        return [features, None, adj_matrix, None, None, set_indices]
+        data_list = extract_subgaphs(G, labels, set_indices, prop_depth=args.prop_depth, layers=args.layers,
+                                 feature_flags=feature_flags, task=task,
+                                 max_sprw=(args.max_sp, args.rw_depth), parallel=args.parallel, logger=logger, debug=args.debug)
+        loader = DataLoader(data_list, batch_size=args.bs, shuffle=False, num_workers=0)
+        return loader
+    G, labels, set_indices, (train_mask, val_test_mask) = generate_samples_labels_graph(G, labels, task, args, logger)
+    if args.debug:
+        logger.info(list(G.edges))
+    data_list = extract_subgaphs(G, labels, set_indices, prop_depth=args.prop_depth, layers=args.layers,
+                                 feature_flags=feature_flags, task=task,
+                                 max_sprw=(args.max_sp, args.rw_depth), parallel=args.parallel, logger=logger, debug=args.debug)
+    train_set, val_set, test_set = split_datalist(data_list, (train_mask, val_test_mask))
+    if args.debug:
+        print_dataset(train_set, logger)
+        print_dataset(val_set, logger)
+        print_dataset(test_set, logger)
+    train_loader, val_loader, test_loader = load_datasets(train_set, val_set, test_set, bs=args.bs)
+    logger.info('Train size :{}, val size: {}, test size: {}, val ratio: {}, test ratio: {}'.format(len(train_set), len(val_set), len(test_set), args.test_ratio, args.test_ratio))
+    return (train_loader, val_loader, test_loader), len(np.unique(labels))
 
+
+def generate_samples_labels_graph(G, labels, task, args, logger):
     if labels is None:
         logger.info('Labels unavailable. Generating training/test instances from dataset ...')
-        G, labels, set_indices, (train_mask, test_mask) = generate_set_indices_labels(G, task, test_ratio=args.test_ratio, data_usage=args.data_usage)
-        logger.info('Generate {} pos/neg training & test instances in total.'.format(set_indices.shape[0]))
+        G, labels, set_indices, (train_mask, val_test_mask) = generate_set_indices_labels(G, task, test_ratio=2*args.test_ratio, data_usage=args.data_usage)
     else:
         # training on nodes or running on synthetic data
-        logger.info('Labels available (node-level task) or no need to train model')
-        set_indices = np.expand_dims(np.arange(G.number_of_nodes()), 1)
-        if args.data_usage < 1.0 - 1e-6:
-            set_indices, sample_i = retain_partial(set_indices, args.data_usage)
-            labels = labels[sample_i] if not isinstance(labels, bool) else None
-        train_mask, test_mask = split_dataset(set_indices.shape[0], test_ratio=args.test_ratio)
-    logger.info('Training size :{}, test size: {}, test ratio: {}'. format(int(train_mask.sum()), int(test_mask.sum()), args.test_ratio))
-    # deal with adj and features
-    logger.info('Encode positions ... (Parallel: {})'.format(args.parallel))
-    adj_matrix, features = get_adj_features(G, set_indices=set_indices, prop_depth=args.prop_depth,
-                                            feature_flags=feature_flags, task=task, max_sprw=(args.max_sp, args.rw_depth),
-                                            parallel=args.parallel, return_adj=args.model!='PGNN')
-    # to device
-    features = torch.from_numpy(features).float().to(device)
-    train_mask = torch.from_numpy(train_mask).float().to(device)
-    test_mask = torch.from_numpy(test_mask).float().to(device)
-    set_indices = torch.from_numpy(set_indices).long().to(device)
-    if args.model != 'PGNN':
-        adj_matrix = torch.from_numpy(adj_matrix).float()  # WARNING: not yet to device here!!!!
-    else:
-        adj_matrix = get_PGNN_anchor_set_distances(args.layers, G, set_indices[test_mask.bool()])  # adj_batch shape: [layers, 2, N, NAS]
-    if not isinstance(labels, bool):
-        labels = torch.from_numpy(labels).long().to(device)
-        assert(len(labels) == set_indices.size(0))
-    return [features, labels, adj_matrix, train_mask, test_mask, set_indices]
+        logger.info('Labels provided (node-level task).')
+        assert(G.number_of_nodes() == labels.shape[0])
+        n_samples = int(round(labels.shape[0] * args.data_usage))
+        set_indices = np.random.choice(G.number_of_nodes(), n_samples, replace=False)
+        labels = labels[set_indices]
+        set_indices = np.expand_dims(set_indices, 1)
+        train_mask, val_test_mask = split_dataset(set_indices.shape[0], test_ratio=2*args.test_ratio, stratify=labels)
+    logger.info('Generate {} train+val+test instances in total. data_usage: {}.'.format(set_indices.shape[0], args.data_usage))
+    return G, labels, set_indices, (train_mask, val_test_mask)
 
 
 def generate_set_indices_labels(G, task, test_ratio, data_usage=1.0):
@@ -185,18 +210,22 @@ def generate_set_indices_labels(G, task, test_ratio, data_usage=1.0):
     return G, labels, set_indices, (train_mask, test_mask)
 
 
-def get_adj_features(G, set_indices, prop_depth, feature_flags, task, max_sprw, parallel, return_adj=True):
+def extract_subgaphs(G, labels, set_indices, prop_depth, layers, feature_flags, task, max_sprw, parallel, logger, debug=False):
+    # deal with adj and features
+    logger.info('Encode positions ... (Parallel: {})'.format(parallel))
+    data_list = []
+    hop_num = get_hop_num(prop_depth, layers, max_sprw, feature_flags)
     n_samples = set_indices.shape[0]
-    adj_matrix, features = [], []
     if not parallel:
         for sample_i in tqdm(range(n_samples)):
-            set_index = set_indices[sample_i]
-            adj_sample, features_sample = get_adj_features_sample(G, set_index, prop_depth, feature_flags, max_sprw)
-            adj_matrix.append(adj_sample)
-            features.append(features_sample)
+            data = get_data_sample(G, set_indices[sample_i], hop_num, feature_flags, max_sprw,
+                                   label=labels[sample_i] if labels is not None else None, debug=debug)
+            data_list.append(data)
     else:
         pool = mp.Pool(4)
-        results = pool.map_async(parallel_worker, [(G, set_indices[sample_i], prop_depth, feature_flags, max_sprw) for sample_i in range(n_samples)])
+        results = pool.map_async(parallel_worker,
+                                 [(G, set_indices[sample_i], hop_num, feature_flags, max_sprw,
+                                   labels[sample_i] if labels is not None else None, debug) for sample_i in range(n_samples)])
         remaining = results._number_left
         pbar = tqdm(total=remaining)
         while True:
@@ -204,96 +233,75 @@ def get_adj_features(G, set_indices, prop_depth, feature_flags, task, max_sprw, 
             if results.ready():
                 break
             remaining = results._number_left
-            time.sleep(0.5)
-        results = results.get()
+            time.sleep(0.2)
+        data_list = results.get()
         pool.close()
         pbar.close()
-        for adj_sample, features_sample in results:
-            adj_matrix.append(adj_sample)
-            features.append(features_sample)
-    if return_adj:
-        adj_matrix = np.stack(adj_matrix)  # shape [n_samples, prop_depth, N, N]
-    else:
-        adj_matrix = None
-    features = np.stack(features, axis=1)  # shape [N, n_samples, F]
-    return adj_matrix, features
+    return data_list
 
 
 def parallel_worker(x):
-    return get_adj_features_sample(*x)
+    return get_data_sample(*x)
 
 
-def get_adj_features_sample(G, set_index, prop_depth, feature_flags, max_sprw):
+def get_data_sample(G, set_index, hop_num, feature_flags, max_sprw, label, debug=False):
+    # first, extract subgraph
     set_index = list(set_index)
-    di_flag, deg_flag, sp_flag, rw_flag, norm_flag = feature_flags
+    sp_flag, rw_flag = feature_flags
     max_sp, rw_depth = max_sprw
     if len(set_index) > 1:
-        new_G = deepcopy(G)
-        new_G.remove_edges_from(combinations(set_index, 2))
-    else:
-        new_G = G
-    adj = np.asarray(nx.adjacency_matrix(new_G, nodelist=range(new_G.number_of_nodes())).todense().astype(np.float64))  # [n_nodes, n_nodes]
-    adj_sample = get_adj_sample(adj, prop_depth, norm=norm_flag)  # shape: [prop_depth, N, N]
+        G = G.copy()
+        G.remove_edges_from(combinations(set_index, 2))
+    edge_index = torch.tensor(list(G.edges)).long().t().contiguous()
+    edge_index = torch.cat([edge_index, edge_index[[1, 0], ]], dim=-1)
+    subgraph_node_old_index, new_edge_index, new_set_index, edge_mask = tgu.k_hop_subgraph(torch.tensor(set_index).long(), hop_num, edge_index, num_nodes=G.number_of_nodes(), relabel_nodes=True)
 
-    features_sample = []
-    if deg_flag:
-        degree = np.sum(adj, axis=1)
-        features_sample.append(np.expand_dims(np.log(degree+1), axis=1))
+    # reconstruct networkx graph object for the extracted subgraph
+    num_nodes = subgraph_node_old_index.size(0)
+    new_G = nx.from_edgelist(new_edge_index.t().numpy().astype(dtype=np.int32), create_using=type(G))
+    new_G.add_nodes_from(np.arange(num_nodes, dtype=np.int32))  # to add disconnected nodes
+    assert(new_G.number_of_nodes() == num_nodes)
+
+    # Construct x from x_list
+    x_list = []
+    attributes = G.graph['attributes']
+    if attributes is not None:
+        new_attributes = torch.tensor(attributes, dtype=torch.float32)[subgraph_node_old_index]
+        if new_attributes.dim() < 2:
+            new_attributes.unsqueeze_(1)
+        x_list.append(new_attributes)
+    # if deg_flag:
+    #     x_list.append(torch.log(tgu.degree(new_edge_index[0], num_nodes=num_nodes, dtype=torch.float32).unsqueeze(1)+1))
     if sp_flag:
-        features_sample.append(get_features_sp_sample(new_G, set_index, max_sp=max_sp))
+        features_sp_sample = get_features_sp_sample(new_G, new_set_index.numpy(), max_sp=max_sp)
+        features_sp_sample = torch.from_numpy(features_sp_sample).float()
+        x_list.append(features_sp_sample)
     if rw_flag:
-        features_sample.append(get_features_rw_sample(adj, set_index, rw_depth=rw_depth))
-    if di_flag:
-        adj_t = adj.transpose((0, 1))
-        adj_sample_t = get_adj_sample(adj_t, prop_depth=prop_depth, norm=norm_flag)[1:]
-        if adj_sample_t.ndim < 3:
-            adj_sample_t = np.expand_dims(adj_sample_t, 0)
-        adj_sample = np.concatenate([adj_sample, adj_sample_t], axis=0)
-        if deg_flag:
-            degree_t = np.sum(adj_t, axis=1)
-            features_sample.append(np.expand_dims(np.log(degree_t + 1), axis=1))
-        if sp_flag:
-            features_sample.append(get_features_sp_sample(new_G.reverse(), set_index, max_sp=max_sp))
-        if rw_flag:
-            features_sample.append(get_features_rw_sample(adj_t, set_index, rw_depth=rw_depth))
-    features_sample = np.concatenate(features_sample, axis=1)
-    return adj_sample, features_sample
+        adj = np.asarray(nx.adjacency_matrix(new_G, nodelist=np.arange(new_G.number_of_nodes(), dtype=np.int32)).todense().astype(np.float32))  # [n_nodes, n_nodes]
+        features_rw_sample = get_features_rw_sample(adj, new_set_index.numpy(), rw_depth=rw_depth)
+        features_rw_sample = torch.from_numpy(features_rw_sample).float()
+        x_list.append(features_rw_sample)
+
+    x = torch.cat(x_list, dim=-1)
+    y = torch.tensor([label], dtype=torch.long) if label is not None else torch.tensor([0], dtype=torch.long)
+    new_set_index = new_set_index.long().unsqueeze(0)
+    if not debug:
+        return Data(x=x, edge_index=new_edge_index, y=y, set_indices=new_set_index)
+    else:
+        return Data(x=x, edge_index=new_edge_index, y=y, set_indices=new_set_index,
+                    old_set_indices=torch.tensor(set_index).long().unsqueeze(0), old_subgraph_indices=subgraph_node_old_index)
 
 
-def get_model(layers, in_features, out_features, set_indices, prop_depth, device, args, logger):
+def get_model(layers, in_features, out_features, prop_depth, args, logger):
     model_name = args.model
-    if model_name in ['PE-GCN', 'GIN', 'GCN', 'GraphSAGE', 'PGNN']:
+    if model_name in ['DE-GNN', 'GIN', 'GCN', 'GraphSAGE', 'GAT']:
         model = GNNModel(layers=layers, in_features=in_features, hidden_features=args.hidden_features,
-                         out_features=out_features, prop_depth=prop_depth, dropout=args.dropout, set_indices=set_indices,
+                         out_features=out_features, prop_depth=prop_depth, dropout=args.dropout,
                          model_name=model_name)
     else:
         return NotImplementedError
-    model.to(device)
     logger.info(model.short_summary())
     return model
-
-
-def get_adj_sample(adj, prop_depth, norm='asym'):
-    if prop_depth == -1:
-        adj = pagerank_inverse(adj)
-        return np.stack([np.eye(adj.shape[0]), adj]).astype(dtype='float32')
-    epsilon = 1e-6
-    if norm == 'sym':
-        adj += np.eye(adj.shape[0])  # renormalization trick
-    adj_sample = np.empty((prop_depth+1, adj.shape[0], adj.shape[0]), dtype=np.int16)
-    adj_sample[0] = np.identity(adj.shape[0], dtype=np.int16)
-    adj_acc = np.identity(adj.shape[0], dtype=np.int16)
-    for i in range(0, prop_depth):
-        adj_sample[i+1] = np.minimum(np.matmul(adj_sample[i], adj), 1)
-        adj_sample[i+1] = np.maximum(adj_sample[i+1] - adj_acc, 0)
-        adj_acc += adj_sample[i+1]
-    adj_sample = adj_sample.astype(dtype='float32', copy=False)
-    if norm == 'asym':
-        adj_sample /= (adj_sample.sum(axis=2, keepdims=True) + epsilon)
-    elif norm == 'sym':
-        adj_sample /= (adj_sample.sum(axis=2, keepdims=True) ** 0.5 + epsilon)
-        adj_sample /= (adj_sample.sum(axis=1, keepdims=True) ** 0.5 + epsilon)
-    return adj_sample
 
 
 def get_features_sp_sample(G, node_set, max_sp):
@@ -311,13 +319,20 @@ def get_features_sp_sample(G, node_set, max_sp):
 
 def get_features_rw_sample(adj, node_set, rw_depth):
     epsilon = 1e-6
-    rw = adj / (adj.sum(1, keepdims=True) + epsilon)
-    rw_list = [np.identity(adj.shape[0])]
+    adj = adj / (adj.sum(1, keepdims=True) + epsilon)
+    rw_list = [np.identity(adj.shape[0])[node_set]]
     for _ in range(rw_depth):
+        rw = np.matmul(rw_list[-1], adj)
         rw_list.append(rw)
-        rw = np.matmul(rw_list[-1], rw)
-    features_rw = np.stack(rw_list, axis=2)[:, node_set, :].sum(axis=1)
+    features_rw_tmp = np.stack(rw_list, axis=2)  # shape [set_size, N, F]
+    # pooling
+    features_rw = features_rw_tmp.sum(axis=0)
     return features_rw
+
+
+def get_hop_num(prop_depth, layers, max_sprw, feature_flags):
+    # TODO: may later use more rw_depth to control as well?
+    return int(prop_depth * layers) + 1   # in order to get the correct degree normalization for the subgraph
 
 
 def shortest_path_length(graph):
@@ -329,8 +344,8 @@ def shortest_path_length(graph):
     return sp_length
 
 
-def split_dataset(n_samples, test_ratio=0.2):
-    train_indices, test_indices = train_test_split(list(range(n_samples)), test_size=test_ratio)
+def split_dataset(n_samples, test_ratio, stratify=None):
+    train_indices, test_indices = train_test_split(list(range(n_samples)), test_size=test_ratio, stratify=stratify)
     train_mask = get_mask(train_indices, n_samples)
     test_mask = get_mask(test_indices, n_samples)
     return train_mask, test_mask
@@ -339,7 +354,7 @@ def split_dataset(n_samples, test_ratio=0.2):
 def get_mask(idx, length):
     mask = np.zeros(length)
     mask[idx] = 1
-    return np.array(mask, dtype=np.float64)
+    return np.array(mask, dtype=np.int8)
 
 
 def sample_pos_neg_sets(G, task, data_usage=1.0):
@@ -390,7 +405,46 @@ def pagerank_inverse(adj, alpha=0.90):
     adj /= (adj.sum(axis=-1, keepdims=True) + 1e-12)
     return np.linalg.inv(np.eye(adj.shape[0]) - alpha * np.transpose(adj, axes=(0,1)))
 
-# ================================== Just for PGNN =================================================
+
+def split_datalist(data_list, masks):
+    # generate train_set
+    train_mask, val_test_mask = masks
+    num_graphs = len(data_list)
+    assert((train_mask.sum()+val_test_mask.sum()).astype(np.int32) == num_graphs)
+    assert(train_mask.shape[0] == num_graphs)
+    train_indices = np.arange(num_graphs)[train_mask.astype(bool)]
+    train_set = [data_list[i] for i in train_indices]
+    # generate val_set and test_set
+    val_test_indices = np.arange(num_graphs)[val_test_mask.astype(bool)]
+    val_test_labels = np.array([data.y for data in data_list], dtype=np.int32)[val_test_indices]
+    val_indices, test_indices = train_test_split(val_test_indices, test_size=int(0.5*len(val_test_indices)), stratify=val_test_labels)
+    val_set = [data_list[i] for i in val_indices]
+    test_set = [data_list[i] for i in test_indices]
+    return train_set, val_set, test_set
+
+
+def load_datasets(train_set, val_set, test_set, bs):
+    num_workers = 0
+    train_loader = DataLoader(train_set, batch_size=bs, shuffle=True, pin_memory=True, num_workers=num_workers)
+    val_loader = DataLoader(val_set, batch_size=bs, shuffle=True, pin_memory=True, num_workers=num_workers)
+    test_loader = DataLoader(test_set, batch_size=bs, shuffle=True, pin_memory=True, num_workers=num_workers)
+    return train_loader, val_loader, test_loader
+
+
+def split_indices(num_graphs, test_ratio, stratify=None):
+    test_size = int(num_graphs*test_ratio)
+    val_size = test_size
+    train_val_set, test_set = train_test_split(np.arange(num_graphs), test_size=test_size, shuffle=True, stratify=stratify)
+    train_set, val_set = train_test_split(train_val_set, test_size=val_size, shuffle=True, stratify=stratify[train_val_set])
+    return train_set, val_set, test_set
+
+
+def get_degrees(G):
+    num_nodes = G.number_of_nodes()
+    return np.array([G.degree[i] for i in range(num_nodes)])
+
+
+# ================================== (obsolete) Just for PGNN =================================================
 # Adapted from https://github.com/JiaxuanYou/P-GNN
 def get_PGNN_anchor_set_distances(layers, G, test_set_indices, c=1):
     G = deepcopy(G)
@@ -441,3 +495,6 @@ class ObjectView:
     def __init__(self, d):
         self.__dict__ = d
 
+# TODO: 1. check if storage allows, send all data to gpu 5. (optional) add directed graph
+# TODO: 6. (optional) enable using original node attributes as initial feature (only need to modify file readin)
+# TODO: 7. (optional) rw using sparse matrix for multiplication
