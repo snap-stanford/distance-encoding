@@ -1,13 +1,13 @@
 # Distance-encoding for GNN design
 This repository is the official PyTorch implementation of the *DEGNN* and *DEAGN* framework reported in the paper: <br>
-*Distance-Encoding -- Design Provably More PowerfulGNNs for Structural Representation Learning*
+[*Distance-Encoding -- Design Provably More PowerfulGNNs for Structural Representation Learning*](https://arxiv.org/abs/2009.00142)
 
 The project's home page is: <http://snap.stanford.edu/distance-encoding/>
 
 ## Authors & Contact
 Pan Li, Yanbang Wang, Hongwei Wang, Jure Leskovec
 
-Questions on the implementation can be directed to <ywangdr@cs.stanford.edu> (Yanbang Wang)
+Questions on this repo can be directed to <ywangdr@cs.stanford.edu> (Yanbang Wang)
 
 ## Installation
 Requirements: Python >= 3.5, [Anaconda3](https://www.anaconda.com/)
