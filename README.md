@@ -7,7 +7,7 @@ The project's home page is: <http://snap.stanford.edu/distance-encoding/>
 ## Authors & Contact
 Pan Li, Yanbang Wang, Hongwei Wang, Jure Leskovec
 
-Questions on the implementation can be sent to Yanbang Wang <ywangdr@cs.stanford.edu>
+Questions on the implementation can be directed to <ywangdr@cs.stanford.edu> (Yanbang Wang)
 
 ## Installation
 Requirements: Python >= 3.5, [Anaconda3](https://www.anaconda.com/)
