@@ -134,7 +134,7 @@ Interface for DE-GNN framework [-h] [--dataset DATASET] [--test_ratio TEST_RATIO
 
 
 ## Reference
-If you make use of the code/experiment of DEGNN in your work, please cite our paper:
+If you make use of the code/experiment of Distance-encoding in your work, please cite our paper:
 ```text
 @misc{li2020distance,
     title={Distance Encoding -- Design Provably More Powerful GNNs for Structural Representation Learning},
