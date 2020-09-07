@@ -7,7 +7,7 @@ The project's home page is: <http://snap.stanford.edu/distance-encoding/>
 ## Authors & Contact
 Pan Li, Yanbang Wang, Hongwei Wang, Jure Leskovec
 
-Questions on this repo can be directed to <ywangdr@cs.stanford.edu> (Yanbang Wang)
+Questions on this repo can be emailed to <ywangdr@cs.stanford.edu> (Yanbang Wang)
 
 ## Installation
 Requirements: Python >= 3.5, [Anaconda3](https://www.anaconda.com/)
@@ -53,7 +53,7 @@ python main.py --dataset celegans_tri --hidden_features 100 --prop_depth 2 --epo
 python main.py --dataset usa-airports --metric acc --hidden_features 100 --feature rw --rw_depth 2 --epoch 500 --bs 128 --test_ratio 0.1
 ```
 
-Note that here the `test_ratio` consists of validation set and the actual test set. 
+Note that here the `test_ratio` currently contains both validation set and the actual test set, and will be changed to contain only test set. 
 
 - To generate **Figure2 LEFT** of the paper (Simulation to validate Theorem 3.3):
 ```bash
@@ -136,12 +136,10 @@ Interface for DE-GNN framework [-h] [--dataset DATASET] [--test_ratio TEST_RATIO
 ## Reference
 If you make use of the code/experiment of Distance-encoding in your work, please cite our paper:
 ```text
-@misc{li2020distance,
-    title={Distance Encoding -- Design Provably More Powerful GNNs for Structural Representation Learning},
-    author={Pan Li and Yanbang Wang and Hongwei Wang and Jure Leskovec},
-    year={2020},
-    eprint={2009.00142},
-    archivePrefix={arXiv},
-    primaryClass={cs.LG}
+@article{li2020distance,
+  title={Distance Encoding--Design Provably More Powerful GNNs for Structural Representation Learning},
+  author={Li, Pan and Wang, Yanbang and Wang, Hongwei and Leskovec, Jure},
+  journal={arXiv preprint arXiv:2009.00142},
+  year={2020}
 }
 ```

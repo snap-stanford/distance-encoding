@@ -81,7 +81,7 @@ class GNNModel(nn.Module):
         return x
 
     def get_layer_class(self):
-        layer_dict = {'DE-GNN': TAGConv, 'GIN': GINConv, 'GCN': GCNConv, 'GraphSAGE': SAGEConv, 'GAT': GATConv}
+        layer_dict = {'DE-GNN': TAGConv, 'GIN': GINConv, 'GCN': GCNConv, 'GraphSAGE': SAGEConv, 'GAT': GATConv}  # TAGConv essentially sums up GCN layerwise outputs, can use GCN instead 
         Layer = layer_dict.get(self.model_name)
         if Layer is None:
             raise NotImplementedError('Unknown model name: {}'.format(self.model_name))
