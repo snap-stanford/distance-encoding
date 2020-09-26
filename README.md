@@ -1,6 +1,6 @@
 # Distance-encoding for GNN design
-This repository is the official PyTorch implementation of the *DEGNN* and *DEAGN* framework reported in the paper: <br>
-[*Distance-Encoding -- Design Provably More PowerfulGNNs for Structural Representation Learning*](https://arxiv.org/abs/2009.00142)
+This repository is the official PyTorch implementation of the *DEGNN* and *DEAGNN* framework reported in the paper: <br>
+[*Distance-Encoding -- Design Provably More PowerfulGNNs for Structural Representation Learning*](https://arxiv.org/abs/2009.00142), to appear in NeurIPS 2020. 
 
 The project's home page is: <http://snap.stanford.edu/distance-encoding/>
 
