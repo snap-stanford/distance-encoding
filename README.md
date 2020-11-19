@@ -40,7 +40,7 @@ The latest tested combination is: Python 3.8.2 + Pytorch 1.4.0 + torch-geometric
 ```bash
 python main.py --dataset celegans --feature sp --hidden_features 100 --prop_depth 1 --test_ratio 0.1 --epoch 300
 ```
-&nbsp;&nbsp;&nbsp; This uses 100-dimensional hidden features, 80/10/10 split of train/val/test set, trains for 300 epochs, and perform distance encoding using multiple cpu cores. 
+&nbsp;&nbsp;&nbsp; This uses 100-dimensional hidden features, 80/10/10 split of train/val/test set, and trains for 300 epochs.
 
 - To train **DEAGNN-SPD** for Task 3 (node-triads prediction) on C.elegans dataset:
 ```bash
