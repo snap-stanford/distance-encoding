@@ -97,7 +97,7 @@ class FeedForwardNetwork(nn.Module):
         self.act = act
         self.dropout = nn.Dropout(dropout)
         self.layer1 = nn.Sequential(nn.Linear(in_features, in_features), self.act, self.dropout)
-        self.layer2 = nn.Sequential(nn.Linear(in_features, out_features), nn.LogSoftmax(dim=-1))
+        self.layer2 = nn.Linear(in_features, out_features)
 
     def forward(self, inputs):
         x = self.layer1(inputs)

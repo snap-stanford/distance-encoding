@@ -44,7 +44,7 @@ python main.py --dataset celegans --feature sp --hidden_features 100 --prop_dept
 
 - To train **DEAGNN-SPD** for Task 3 (node-triads prediction) on C.elegans dataset:
 ```bash
-python main.py --dataset celegans_tri --hidden_features 100 --prop_depth 2 --epoch 300 --feature sp --max_sp 5 --test_ratio 0.1 --seed 9
+python main.py --dataset celegans_tri --hidden_features 100 --prop_depth 2 --epoch 300 --feature sp --max_sp 5 --l2 1e-3 --test_ratio 0.1 --seed 9
 ```
 &nbsp;&nbsp;&nbsp; This enables 2-hop propagation per layer, truncates distance encoding at 5, and uses random seed 9.
 
