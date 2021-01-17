@@ -139,7 +139,7 @@ If you make use of the code/experiment of Distance-encoding in your work, please
 @article{li2020distance,
   title={Distance Encoding--Design Provably More Powerful GNNs for Structural Representation Learning},
   author={Li, Pan and Wang, Yanbang and Wang, Hongwei and Leskovec, Jure},
-  journal={arXiv preprint arXiv:2009.00142},
+  booktitle={Advances in Neural Information Processing Systems},
   year={2020}
 }
 ```
