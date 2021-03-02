@@ -103,7 +103,7 @@ def read_file(args, logger):
     di_flag = args.directed
     if dataset in ['brazil-airports', 'europe-airports', 'usa-airports', 'foodweb', 'karate']:
         task = 'node_classification'
-    elif dataset in ['arxiv', 'celegans', 'celegans_small', 'facebook', 'ns', 'pb', 'power', 'router', 'usair', 'yeast']:
+    elif dataset in ['arxiv', 'celegans', 'celegans_small', 'ogbl_collab','facebook', 'ns', 'pb', 'power', 'router', 'usair', 'yeast']:
         task = 'link_prediction'
     elif dataset in ['arxiv_tri', 'celegans_tri', 'celegans_small_tri', 'facebook_tri', 'ns_tri', 'pb_tri', 'power_tri', 'router_tri', 'usair_tri', 'yeast_tri']:
         task = 'triplet_prediction'
