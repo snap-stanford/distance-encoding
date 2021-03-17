@@ -137,9 +137,10 @@ Interface for DE-GNN framework [-h] [--dataset DATASET] [--test_ratio TEST_RATIO
 If you make use of the code/experiment of Distance-encoding in your work, please cite our paper:
 ```text
 @article{li2020distance,
-  title={Distance Encoding--Design Provably More Powerful GNNs for Structural Representation Learning},
+  title={Distance Encoding: Design Provably More Powerful Neural Networks for Graph Representation Learning},
   author={Li, Pan and Wang, Yanbang and Wang, Hongwei and Leskovec, Jure},
-  booktitle={Advances in Neural Information Processing Systems},
+  journal={Advances in Neural Information Processing Systems},
+  volume={33},
   year={2020}
 }
 ```
