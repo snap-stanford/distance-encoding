@@ -6,3 +6,5 @@ data/node_classification/foodweb/.ipynb_checkpoints/*
 data/link_prediction/celegans_small/.ipynb_checkpoints/
 models/__pycacche__/*
 *pyc
+
+*.DS_Store
