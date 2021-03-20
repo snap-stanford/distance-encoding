@@ -7,4 +7,8 @@ data/link_prediction/celegans_small/.ipynb_checkpoints/
 models/__pycacche__/*
 *pyc
 
-*.DS_Store
+# Ignore Mac system files
+.DS_store
+
+# Ignore VSCode
+.VSCode
